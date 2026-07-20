@@ -1,0 +1,6 @@
+{
+  "name": "د. تامر مدبولي - مساعد الكيمياء الذكي",
+  "description": "منصة كيمياء متقدمة لحل المسائل الكيميائية وتفسير المعادلات بالذكاء الاصطناعي، تحت إشراف د. تامر مدبولي",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
