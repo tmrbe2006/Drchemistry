@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Loader2, Timer, Award, CheckCircle, XCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { trackExamGenerated } from "../utils/analytics";
 
 interface ExamGeneratorProps {
   lang: "ar" | "en";
@@ -68,6 +69,7 @@ export default function ExamGeneratorSection({ lang, selectedModel }: ExamGenera
       const parsed = JSON.parse(cleanedText);
       
       setExam(parsed);
+      trackExamGenerated();
       setTimeLeft(600); // 10 minutes
       setTimerActive(true);
     } catch (e) {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Calendar, Plus, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
+import { trackStudyPlanCreated } from "../utils/analytics";
 
 export default function StudyPlanner({ lang }: { lang: "ar" | "en" }) {
   const [sessions, setSessions] = useState<{ id: number; topic: string; date: string }[]>([]);
@@ -12,6 +13,7 @@ export default function StudyPlanner({ lang }: { lang: "ar" | "en" }) {
       setSessions([...sessions, { id: Date.now(), topic: newTopic, date: newDate }]);
       setNewTopic("");
       setNewDate("");
+      trackStudyPlanCreated();
     }
   };
 

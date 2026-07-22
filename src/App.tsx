@@ -15,6 +15,8 @@ import ImportantQuestionsSection from "./components/ImportantQuestionsSection";
 import ChemicalLibrary from "./components/ChemicalLibrary";
 import LatexHelpModal from "./components/LatexHelpModal";
 import ChemistryChart from "./components/ChemistryChart";
+import AnalyticsDashboard from "./components/AnalyticsDashboard";
+import { trackPageVisit, trackAISolved } from "./utils/analytics";
 import Markdown from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
@@ -424,7 +426,7 @@ export default function App() {
       localStorage.setItem("dr_tamer_chem_history", JSON.stringify(history));
     }
   }, [history]);
-  const [activeTab, setActiveTab] = useState<"ai-solver" | "periodic-table" | "molar-calc" | "quiz" | "pronunciation" | "flashcards" | "study-planner" | "exam-generator" | "lectures" | "important" | "about">("ai-solver");
+  const [activeTab, setActiveTab] = useState<"ai-solver" | "periodic-table" | "molar-calc" | "quiz" | "pronunciation" | "flashcards" | "study-planner" | "exam-generator" | "lectures" | "important" | "about" | "dashboard">("ai-solver");
 
   // Follow-up chat state
   const [followUpPrompt, setFollowUpPrompt] = useState("");
@@ -441,6 +443,8 @@ export default function App() {
     setUseKatex(savedKatex);
     if (savedContrast) document.documentElement.classList.add("high-contrast");
     if (savedPrompt) setPrompt(savedPrompt);
+
+    trackPageVisit();
 
     if (savedTheme) {
       setTheme(savedTheme);
@@ -1252,6 +1256,7 @@ export default function App() {
       }
 
       const data = await response.json();
+      trackAISolved();
 
       // Parse chart data if present
       let chartData = null;
@@ -1461,6 +1466,18 @@ export default function App() {
               >
                 <GraduationCap className="w-4 h-4 text-indigo-500" />
                 <span className="hidden sm:inline">{lang === "en" ? "Cards" : "البطاقات"}</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`px-3 py-2 rounded-xl text-[10px] md:text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                  activeTab === "dashboard"
+                    ? "bg-teal-600 text-white shadow-sm"
+                    : "text-slate-650 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+                }`}
+              >
+                <BarChart4 className="w-4 h-4 text-emerald-500" />
+                <span className="hidden sm:inline">{lang === "en" ? "Dashboard" : "الإحصائيات"}</span>
               </button>
             </div>
           </div>
@@ -2358,6 +2375,10 @@ export default function App() {
         ) : activeTab === "about" ? (
           <div className="space-y-6">
             <AboutSection lang={lang} />
+          </div>
+        ) : activeTab === "dashboard" ? (
+          <div className="space-y-6">
+            <AnalyticsDashboard lang={lang} />
           </div>
         ) : (
           <div className="space-y-6">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Youtube, Plus, Trash2, ExternalLink, Play, Video, Lock, Unlock, FileText, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { trackVideoView, trackDownload } from "../utils/analytics";
 
 interface Resource {
   id: string;
@@ -310,6 +311,13 @@ export default function LecturesSection({ lang, isAdmin, setIsAdmin }: LecturesS
                     href={res.url} 
                     target="_blank" 
                     rel="noopener noreferrer"
+                    onClick={() => {
+                      if (res.type === "youtube") {
+                        trackVideoView(res.title);
+                      } else {
+                        trackDownload(res.title);
+                      }
+                    }}
                     className={`w-16 h-16 text-white rounded-full flex items-center justify-center shadow-2xl scale-75 group-hover:scale-100 transition-transform duration-500 ${res.type === 'youtube' ? 'bg-rose-600' : 'bg-teal-600'}`}
                   >
                     {res.type === 'youtube' ? <Play className="w-8 h-8 fill-current ml-1" /> : <FileText className="w-8 h-8" />}
@@ -327,7 +335,7 @@ export default function LecturesSection({ lang, isAdmin, setIsAdmin }: LecturesS
                 )}
               </div>
               <div className="p-6">
-                <h4 className="font-black text-slate-800 dark:text-white line-clamp-2 mb-4 group-hover:text-teal-600 transition-colors">
+                <h4 className="font-black text-slate-850 dark:text-white line-clamp-2 mb-4 group-hover:text-teal-600 transition-colors">
                   {res.title}
                 </h4>
                 <div className="flex items-center justify-between">
@@ -339,6 +347,13 @@ export default function LecturesSection({ lang, isAdmin, setIsAdmin }: LecturesS
                     href={res.url} 
                     target="_blank" 
                     rel="noopener noreferrer"
+                    onClick={() => {
+                      if (res.type === "youtube") {
+                        trackVideoView(res.title);
+                      } else {
+                        trackDownload(res.title);
+                      }
+                    }}
                     className="flex items-center gap-1 text-slate-400 hover:text-teal-600 text-xs font-bold transition-colors"
                   >
                     {isEn ? "Open" : "فتح"}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChemicalElement } from "../types";
 import { Info, Sparkles, BookOpen, Search, Filter, X } from "lucide-react";
 import { GLOSSARY_TERMS } from "../glossary";
+import { trackPeriodicClick } from "../utils/analytics";
 
 interface PeriodicTableProps {
   lang: "ar" | "en";
@@ -137,6 +138,7 @@ export default function PeriodicTable({ lang }: PeriodicTableProps) {
                   onClick={() => {
                     setSelectedElement(el);
                     setIsModalOpen(true);
+                    trackPeriodicClick();
                   }}
                   id={`elem-btn-${el.symbol.toLowerCase()}`}
                   style={{ gridColumn: gridCol, gridRow: gridRow, direction: "ltr" }}

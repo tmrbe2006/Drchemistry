@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Volume2, VolumeX, Play, RotateCcw, Sparkles, BookOpen, Clock, Trash2, HelpCircle } from "lucide-react";
+import { trackPronunciationPlay } from "../utils/analytics";
 
 interface PronunciationSectionProps {
   lang: "ar" | "en";
@@ -103,6 +104,7 @@ export default function PronunciationSection({ lang }: PronunciationSectionProps
     };
 
     synthRef.current.speak(utterance);
+    trackPronunciationPlay();
 
     // Save to history if it's the main input
     if (textToSpeak === text) {

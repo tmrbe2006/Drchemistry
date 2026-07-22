@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, Award, RefreshCw, AlertCircle, HelpCircle, ArrowR
 import LearningInsights from "./LearningInsights";
 import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
+import { trackQuizAttempt } from "../utils/analytics";
 
 interface Question {
   id: number;
@@ -666,6 +667,7 @@ export default function QuizSection({ lang, topic, customQuestions, onResetCusto
     }
 
     setQuizSubmitted(true);
+    trackQuizAttempt();
     setShowTip(true);
   };
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { RefreshCw } from "lucide-react";
+import { trackFlashcardView } from "../utils/analytics";
 
 const FLASHCARDS = [
   { front: "H", back: "Hydrogen", category: "Element" },
@@ -30,7 +31,10 @@ export default function FlashcardsSection({ lang }: { lang: "ar" | "en" }) {
       <motion.div
         className="w-full max-w-sm h-64 cursor-pointer relative"
         style={{ transformStyle: "preserve-3d" }}
-        onClick={() => setFlipped(!flipped)}
+        onClick={() => {
+          setFlipped(!flipped);
+          trackFlashcardView();
+        }}
         animate={{ rotateY: flipped ? 180 : 0 }}
         transition={{ duration: 0.6, type: "spring", stiffness: 200 }}
       >
