@@ -12,6 +12,7 @@ import StudyPlanner from "./components/StudyPlanner";
 import LecturesSection from "./components/LecturesSection";
 import AboutSection from "./components/AboutSection";
 import ImportantQuestionsSection from "./components/ImportantQuestionsSection";
+import ChemicalLibrary from "./components/ChemicalLibrary";
 import LatexHelpModal from "./components/LatexHelpModal";
 import ChemistryChart from "./components/ChemistryChart";
 import Markdown from "react-markdown";
@@ -57,7 +58,13 @@ import {
   MessageSquareText,
   Star,
   Cpu,
-  BarChart4
+  BarChart4,
+  ShieldCheck,
+  Search,
+  Filter,
+  X,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 
 // Interactive Typewriter Markdown Component to simulate a living tutor
@@ -376,25 +383,45 @@ export default function App() {
   const [useKatex, setUseKatex] = useState(false);
   const [showQuickReference, setShowQuickReference] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<"gemini-2.0-flash" | "gemini-1.5-pro">("gemini-2.0-flash");
+  const [isAdmin, setIsAdmin] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("dr_tamer_admin_active") === "true";
+    }
+    return false;
+  });
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<"gemini-2.0-flash" | "gemini-1.5-flash" | "gemini-1.5-pro" | "deepseek-r1" | "qwen-2.5">("gemini-2.0-flash");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   
   // Solved history
   const [history, setHistory] = useState<SolvedProblem[]>([]);
   const [currentSolution, setCurrentSolution] = useState<SolvedProblem | null>(null);
+  const [historySearchTerm, setHistorySearchTerm] = useState("");
+  const [historyTopicFilter, setHistoryTopicFilter] = useState("all");
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
   
   // Caching mechanism: Load from local storage on mount
   useEffect(() => {
-    const cached = localStorage.getItem("chemistry_solver_cache");
+    const cached = localStorage.getItem("dr_tamer_chem_history");
     if (cached) {
-      setHistory(JSON.parse(cached));
+      try {
+        setHistory(JSON.parse(cached));
+      } catch (err) {
+        console.error("Failed to parse history cache:", err);
+      }
     }
   }, []);
 
   // Save to cache whenever history updates
   useEffect(() => {
-    if (history.length > 0) {
-      localStorage.setItem("chemistry_solver_cache", JSON.stringify(history));
+    if (history.length >= 0) {
+      localStorage.setItem("dr_tamer_chem_history", JSON.stringify(history));
     }
   }, [history]);
   const [activeTab, setActiveTab] = useState<"ai-solver" | "periodic-table" | "molar-calc" | "quiz" | "pronunciation" | "flashcards" | "study-planner" | "exam-generator" | "lectures" | "important" | "about">("ai-solver");
@@ -730,32 +757,18 @@ export default function App() {
   const suggestedQuestions = lang === "en" ? SUGGESTED_QUESTIONS_EN : SUGGESTED_QUESTIONS_AR;
   const loadingMessages = lang === "en" ? loadingMessagesEn : loadingMessagesAr;
 
-  // Load history from localStorage on startup
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("dr_tamer_chem_history");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setHistory(parsed);
-        if (parsed.length > 0) {
-          setCurrentSolution(parsed[0]);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load chemistry history:", e);
-    }
-  }, []);
-
   // Save history to localStorage
   const saveToHistory = (newProblem: SolvedProblem) => {
-    const updated = [newProblem, ...history.filter(h => h.id !== newProblem.id)].slice(0, 20); // Keep last 20
-    setHistory(updated);
+    setHistory(prev => {
+      const updated = [newProblem, ...prev.filter(h => h.id !== newProblem.id)].slice(0, 20); // Keep last 20
+      try {
+        localStorage.setItem("dr_tamer_chem_history", JSON.stringify(updated));
+      } catch (e) {
+        console.error("Failed to save chemistry history:", e);
+      }
+      return updated;
+    });
     setCurrentSolution(newProblem);
-    try {
-      localStorage.setItem("dr_tamer_chem_history", JSON.stringify(updated));
-    } catch (e) {
-      console.error("Failed to save chemistry history:", e);
-    }
   };
 
   const toggleHistoryItemBookmark = (id: string, e: React.MouseEvent) => {
@@ -776,15 +789,248 @@ export default function App() {
 
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = history.filter((item) => item.id !== id);
-    setHistory(updated);
+    
+    const title = lang === "en" ? "Delete History Item" : "حذف عنصر من السجل";
+    const message = lang === "en" 
+      ? "⚠️ Are you sure you want to permanently delete this item from history? This action cannot be undone." 
+      : "⚠️ هل أنت متأكد من حذف هذا العنصر نهائياً من السجل؟ لا يمكن التراجع عن هذا الإجراء.";
+    
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setHistory(prev => {
+          const updated = prev.filter((item) => item.id !== id);
+          if (currentSolution?.id === id) {
+            setCurrentSolution(updated.length > 0 ? updated[0] : null);
+          }
+          return updated;
+        });
+        setSelectedHistoryIds(prev => prev.filter(selectedId => selectedId !== id));
+      }
+    });
+  };
+
+  const deleteSelectedHistoryItems = (e: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (selectedHistoryIds.length === 0) return;
+    
+    const title = lang === "en" ? "Delete Selected Items" : "حذف العناصر المحددة";
+    const message = lang === "en" 
+      ? `⚠️ Are you sure you want to permanently delete ${selectedHistoryIds.length} selected items from your history?` 
+      : `⚠️ هل أنت متأكد من حذف ${selectedHistoryIds.length} عناصر مختارة نهائياً من السجل؟`;
+
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setHistory(prev => {
+          const updated = prev.filter((item) => !selectedHistoryIds.includes(item.id));
+          if (currentSolution && selectedHistoryIds.includes(currentSolution.id)) {
+            setCurrentSolution(updated.length > 0 ? updated[0] : null);
+          }
+          return updated;
+        });
+        setSelectedHistoryIds([]);
+        setIsSelectionMode(false);
+      }
+    });
+  };
+
+  const handleExportSelectedToPDF = (e: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (selectedHistoryIds.length === 0) return;
+
     try {
-      localStorage.setItem("dr_tamer_chem_history", JSON.stringify(updated));
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+
+      // Header Banner
+      doc.setFillColor(30, 41, 59); // Premium Slate/Obsidian Banner
+      doc.rect(0, 0, 210, 32, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(
+        lang === "en" 
+          ? "Dr. Tamer Madbouly - Chemistry Revision Sheet" 
+          : "مذكرة مراجعة الكيمياء - د. تامر مدبولي", 
+        15, 12
+      );
+      
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184); // Slate 400
+      doc.text(
+        lang === "en" 
+          ? `Compiled on: ${new Date().toLocaleDateString("en-US")} • Contains ${selectedHistoryIds.length} solved problems` 
+          : `تاريخ التصدير: ${new Date().toLocaleDateString("ar-EG")} • تحتوي على عدد ${selectedHistoryIds.length} مسائل كيميائية محلولة`, 
+        15, 22
+      );
+
+      let yPos = 42;
+      const selectedProblems = history.filter(item => selectedHistoryIds.includes(item.id));
+
+      selectedProblems.forEach((problem, index) => {
+        // If yPos is close to the bottom, start a new page
+        if (yPos > 240) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        // Problem Header / Title
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(79, 70, 229); // Indigo Accent
+        
+        const categoryMap: Record<string, string> = {
+          general: lang === "en" ? "General Chemistry" : "كيمياء عامة",
+          organic: lang === "en" ? "Organic Chemistry" : "كيمياء عضوية",
+          stoichiometry: lang === "en" ? "Chemical Calculation" : "حساب كيميائي",
+          thermo: lang === "en" ? "Thermodynamics" : "كيمياء حرارية",
+          analytical: lang === "en" ? "Analytical Chemistry" : "كيمياء تحليلية"
+        };
+        const categoryName = categoryMap[problem.topic || "general"] || (lang === "en" ? "General" : "عامة");
+
+        const problemTitle = lang === "en"
+          ? `[${categoryName}] PROBLEM ${index + 1}:`
+          : `[${categoryName}] مسألة رقم ${index + 1}:`;
+
+        doc.text(problemTitle, 15, yPos);
+        yPos += 7;
+
+        // Prompt / Question
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(15, 23, 42); // Slate 900
+        const promptLines = doc.splitTextToSize(problem.prompt, 180);
+        
+        // Ensure prompt lines fit
+        for (const line of promptLines) {
+          if (yPos > 275) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(line, 15, yPos);
+          yPos += 6;
+        }
+        
+        yPos += 4;
+
+        // Solution Section Title
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(13, 148, 136); // Teal Accent
+        doc.text(lang === "en" ? "Detailed Solution:" : "الخطوات والحل التفصيلي:", 15, yPos);
+        yPos += 7;
+
+        // Clean solution text
+        const cleanContent = problem.solution
+          .replace(/\$\$/g, "")
+          .replace(/\$/g, "")
+          .replace(/[\#\*\_`]/g, "") 
+          .replace(/\n\s*\n/g, "\n\n");
+        
+        const contentLines = doc.splitTextToSize(cleanContent, 180);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(15, 23, 42);
+
+        for (const line of contentLines) {
+          if (yPos > 275) {
+            doc.addPage();
+            yPos = 20;
+          }
+          
+          if (line.includes("🔬") || line.includes("📝") || line.includes("🧪") || line.includes("🎯") || line.includes("💡")) {
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(79, 70, 229);
+            doc.text(line, 15, yPos);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(15, 23, 42);
+          } else {
+            doc.text(line, 15, yPos);
+          }
+          yPos += 6;
+        }
+
+        // Draw a divider line if not the last item
+        if (index < selectedProblems.length - 1) {
+          yPos += 8;
+          if (yPos > 275) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.setDrawColor(226, 232, 240); // Slate 200
+          doc.line(15, yPos, 195, yPos);
+          yPos += 10;
+        }
+      });
+
+      // Universal Page Footer on current page
+      yPos += 10;
+      if (yPos > 280) {
+        doc.addPage();
+        yPos = 20;
+      }
+      doc.setDrawColor(241, 245, 249);
+      doc.line(15, yPos, 195, yPos);
+      yPos += 6;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184); // Slate 400
+      doc.text(
+        lang === "en" 
+          ? "Generated by Dr. Tamer Madbouly AI Chemistry Consultant Engine • All Rights Reserved." 
+          : "تم التوليد ذكياً عبر محرك د. تامر مدبولي للذكاء الاصطناعي والاستشارات الكيميائية والفيزيائية.", 
+        15, 
+        yPos
+      );
+
+      doc.save(`dr-tamer-chemistry-revision.pdf`);
+    } catch (error) {
+      console.error("Failed to generate combined PDF:", error);
+      alert(lang === "en" ? "Could not generate PDF revision sheet. Please try again." : "فشل توليد مذكرة المراجعة كـ PDF. يرجى المحاولة مرة أخرى.");
+    }
+  };
+
+  const toggleHistorySelection = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedHistoryIds(prev => 
+      prev.includes(id) 
+        ? prev.filter(selectedId => selectedId !== id) 
+        : [...prev, id]
+    );
+  };
+
+  const deleteFollowUp = (solutionId: string, messageIndex: number) => {
+    const updatedHistory = history.map(item => {
+      if (item.id === solutionId && item.followUps) {
+        const newFollowUps = [...item.followUps];
+        newFollowUps.splice(messageIndex, 1);
+        return { ...item, followUps: newFollowUps };
+      }
+      return item;
+    });
+
+    setHistory(updatedHistory);
+    try {
+      localStorage.setItem("dr_tamer_chem_history", JSON.stringify(updatedHistory));
     } catch (err) {
       console.error(err);
     }
-    if (currentSolution?.id === id) {
-      setCurrentSolution(updated.length > 0 ? updated[0] : null);
+
+    if (currentSolution?.id === solutionId) {
+      const currentIdx = history.findIndex(h => h.id === solutionId);
+      if (currentIdx !== -1) {
+        setCurrentSolution(updatedHistory[currentIdx]);
+      }
     }
   };
 
@@ -848,7 +1094,7 @@ export default function App() {
       const response = await fetch("/api/solve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: fullPrompt, language: lang }),
+        body: JSON.stringify({ prompt: fullPrompt, language: lang, model: selectedModel }),
       });
 
       if (!response.ok) throw new Error("Consultation failed");
@@ -886,11 +1132,21 @@ export default function App() {
   };
 
   const clearAllHistory = () => {
-    if (confirm(t.confirmClear)) {
-      setHistory([]);
-      setCurrentSolution(null);
-      localStorage.removeItem("dr_tamer_chem_history");
-    }
+    const title = lang === "en" ? "Clear All History" : "مسح السجل بالكامل";
+    const message = lang === "en" 
+      ? "⚠️ Are you sure you want to delete all saved problems in the history? This will clear everything." 
+      : "⚠️ هل أنت متأكد من رغبتك في مسح السجل بالكامل وحذف كافة المسائل المحفوظة؟";
+
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setHistory([]);
+        setCurrentSolution(null);
+        localStorage.removeItem("dr_tamer_chem_history");
+      }
+    });
   };
 
   // Drag and Drop files
@@ -1055,6 +1311,13 @@ export default function App() {
     setTopic(topicKey);
     setError(null);
     setActiveTab("ai-solver");
+  };
+
+  const handleSelectFormula = (formula: string) => {
+    setPrompt(prev => {
+      const spacing = prev.length > 0 && !prev.endsWith(" ") ? " " : "";
+      return prev + spacing + formula;
+    });
   };
 
   return (
@@ -1261,10 +1524,6 @@ export default function App() {
                     <FlaskConical className="w-6 h-6 text-indigo-600 shrink-0" />
                     {t.formTitle}
                   </h3>
-                  <div className="text-[10px] text-slate-400 font-mono font-bold flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200/50">
-                    <Sparkles className="w-3 h-3 text-indigo-500" />
-                    Qwen-3.5 Quantum Resolve Enabled
-                  </div>
                 </div>
 
                 {/* Integrated Qwen AI style Input Box Container */}
@@ -1386,6 +1645,18 @@ export default function App() {
                           <span>Flash 2.0</span>
                         </button>
                         <button
+                          onClick={() => setSelectedModel("gemini-1.5-flash")}
+                          type="button"
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                            selectedModel === "gemini-1.5-flash" 
+                              ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-xs ring-1 ring-slate-200/50" 
+                              : "text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                          }`}
+                        >
+                          <Atom className="w-3 h-3" />
+                          <span>Flash 1.5</span>
+                        </button>
+                        <button
                           onClick={() => setSelectedModel("gemini-1.5-pro")}
                           type="button"
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all ${
@@ -1396,6 +1667,30 @@ export default function App() {
                         >
                           <Cpu className="w-3 h-3" />
                           <span>Pro 1.5</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedModel("deepseek-r1")}
+                          type="button"
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                            selectedModel === "deepseek-r1" 
+                              ? "bg-white dark:bg-slate-700 text-rose-600 shadow-xs ring-1 ring-rose-200/50" 
+                              : "text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                          }`}
+                        >
+                          <Sparkles className="w-3 h-3 text-rose-500" />
+                          <span>DeepSeek</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedModel("qwen-2.5")}
+                          type="button"
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                            selectedModel === "qwen-2.5" 
+                              ? "bg-white dark:bg-slate-700 text-teal-600 shadow-xs ring-1 ring-teal-200/50" 
+                              : "text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                          }`}
+                        >
+                          <Cpu className="w-3 h-3 text-teal-500" />
+                          <span>Qwen</span>
                         </button>
                       </div>
 
@@ -1631,13 +1926,22 @@ export default function App() {
                         {currentSolution.followUps.map((msg: any, idx: number) => (
                           <div 
                             key={idx} 
-                            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                            className={`flex flex-col group ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
                           >
-                            <div className={`max-w-[90%] p-4 rounded-2xl text-sm font-bold shadow-sm ${
+                            <div className={`relative max-w-[90%] p-4 rounded-2xl text-sm font-bold shadow-sm ${
                               msg.role === 'user' 
                                 ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-800 rounded-br-none' 
                                 : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-bl-none'
                             }`}>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => deleteFollowUp(currentSolution.id, idx)}
+                                  className={`absolute -top-2 ${msg.role === 'user' ? '-left-2' : '-right-2'} w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-md hover:scale-110 active:scale-95`}
+                                  title="Delete message"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
                               <TypewriterMarkdown 
                                 content={msg.text} 
                                 lang={lang} 
@@ -1692,6 +1996,11 @@ export default function App() {
             {/* HISTORY BOARD: Right Panel */}
             <div className="space-y-6">
               
+              <ChemicalLibrary 
+                lang={lang} 
+                onSelect={handleSelectFormula} 
+              />
+
               {/* Profile Card of Dr Tamer */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl relative overflow-hidden flex flex-col items-center text-center">
                 <div className="absolute top-0 inset-x-0 h-24 bg-linear-to-r from-teal-600 to-cyan-600 opacity-10"></div>
@@ -1721,6 +2030,31 @@ export default function App() {
                     <span className="font-black text-xs text-slate-700">{t.profileLevelVal}</span>
                   </div>
                 </div>
+
+                <button
+                  onClick={() => {
+                    if (isAdmin) {
+                      setIsAdmin(false);
+                      localStorage.removeItem("dr_tamer_admin_active");
+                    } else {
+                      const pass = window.prompt(lang === "en" ? "Enter Admin Password:" : "أدخل كلمة مرور المسؤول:");
+                      if (pass === "dr_tamer_2026") {
+                        setIsAdmin(true);
+                        localStorage.setItem("dr_tamer_admin_active", "true");
+                      } else if (pass !== null) {
+                        window.alert(lang === "en" ? "Incorrect password" : "كلمة المرور غير صحيحة");
+                      }
+                    }
+                  }}
+                  className={`mt-4 w-full py-2 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-2 ${
+                    isAdmin 
+                      ? "bg-rose-50 text-rose-600 border border-rose-100" 
+                      : "bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100"
+                  }`}
+                >
+                  <ShieldCheck className={`w-3 h-3 ${isAdmin ? "text-rose-500" : "text-slate-300"}`} />
+                  {isAdmin ? (lang === "en" ? "Admin Mode: ON" : "وضع المسؤول: مفعل") : (lang === "en" ? "Enable Admin Mode" : "تفعيل وضع المسؤول")}
+                </button>
               </div>
 
               {/* Solved Problems Log Drawer */}
@@ -1731,6 +2065,20 @@ export default function App() {
                       <History className="w-4 h-4 text-teal-600" />
                       {t.historyTitle} ({history.length})
                     </h3>
+                    <button
+                      onClick={() => {
+                        setIsSelectionMode(!isSelectionMode);
+                        if (!isSelectionMode) setSelectedHistoryIds([]);
+                      }}
+                      className={`p-1.5 rounded-lg transition-all ${
+                        isSelectionMode 
+                          ? "bg-indigo-100 text-indigo-600 shadow-3xs" 
+                          : "text-slate-300 hover:text-slate-500 hover:bg-slate-50"
+                      }`}
+                      title={lang === "en" ? "Toggle Selection Mode" : "تبديل وضع التحديد"}
+                    >
+                      <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                    </button>
                     <button
                       onClick={() => setShowOnlyFavorites(!showOnlyFavorites)}
                       className={`p-1.5 rounded-lg transition-all ${
@@ -1743,28 +2091,124 @@ export default function App() {
                       <Star className={`w-3.5 h-3.5 ${showOnlyFavorites ? "fill-amber-500" : ""}`} />
                     </button>
                   </div>
-                  {history.length > 0 && (
+                  {selectedHistoryIds.length > 0 ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={(e) => deleteSelectedHistoryItems(e)}
+                        className="text-[10px] text-rose-600 hover:text-rose-700 font-black transition-colors flex items-center gap-1 bg-rose-50 px-2 py-1 rounded-md border border-rose-100 shadow-sm hover:shadow-md active:scale-95"
+                        title={lang === "en" ? "Delete Selected" : "حذف المحدد"}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>{lang === "en" ? "Delete" : "حذف"}</span>
+                      </button>
+                      <button
+                        onClick={(e) => handleExportSelectedToPDF(e)}
+                        className="text-[10px] text-teal-700 hover:text-teal-800 font-black transition-colors flex items-center gap-1 bg-teal-50 px-2 py-1 rounded-md border border-teal-100 shadow-sm hover:shadow-md active:scale-95"
+                        title={lang === "en" ? "Export to PDF" : "تصدير كـ PDF"}
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>{lang === "en" ? "PDF" : "PDF"}</span>
+                      </button>
+                    </div>
+                  ) : history.length > 0 && (
                     <button
                       onClick={clearAllHistory}
-                      className="text-[11px] text-rose-600 hover:text-rose-700 font-bold transition-colors"
+                      className="text-[11px] text-rose-600 hover:text-rose-700 font-bold transition-colors shrink-0"
                     >
                       {t.historyClear}
                     </button>
                   )}
                 </div>
 
+                {/* Search & Topic Filter Row */}
+                {history.length > 0 && (
+                  <div className="mb-4 flex flex-col sm:flex-row gap-2">
+                    {/* Search Field */}
+                    <div className="relative flex-grow">
+                      <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={historySearchTerm}
+                        onChange={(e) => setHistorySearchTerm(e.target.value)}
+                        placeholder={lang === "en" ? "Search history..." : "بحث في السجل..."}
+                        className="w-full pl-8 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:border-teal-500 outline-hidden transition-all text-right"
+                        style={{ direction: isRtl ? "rtl" : "ltr" }}
+                      />
+                      {historySearchTerm && (
+                        <button 
+                          onClick={() => setHistorySearchTerm("")}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Filter Icon and Dropdown Select */}
+                    <div className="relative shrink-0 flex items-center">
+                      <select
+                        value={historyTopicFilter}
+                        onChange={(e) => setHistoryTopicFilter(e.target.value)}
+                        className="w-full pl-8 pr-6 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-black text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-teal-500 cursor-pointer shadow-3xs appearance-none"
+                      >
+                        <option value="all">{lang === "en" ? "All Categories" : "كل التصنيفات"}</option>
+                        <option value="general">{t.topicGeneral}</option>
+                        <option value="organic">{t.topicOrganic}</option>
+                        <option value="stoichiometry">{t.topicStoichiometry}</option>
+                        <option value="thermo">{t.topicThermo}</option>
+                        <option value="analytical">{t.topicAnalytical}</option>
+                      </select>
+                      <Filter className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-2.5 top-3 w-3 h-3 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                )}
+
+                {isSelectionMode && history.length > 0 && (
+                  <div className="mb-4 flex items-center justify-between bg-indigo-50/50 p-2 rounded-xl border border-indigo-100">
+                    <button 
+                      onClick={() => setSelectedHistoryIds(selectedHistoryIds.length === history.length ? [] : history.map(h => h.id))}
+                      className="text-[10px] font-black text-indigo-600 bg-white border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-all active:scale-95"
+                    >
+                      {selectedHistoryIds.length === history.length 
+                        ? (lang === "en" ? "Deselect All" : "إلغاء تحديد الكل") 
+                        : (lang === "en" ? "Select All" : "تحديد الكل")}
+                    </button>
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">
+                      {lang === "en" ? `${selectedHistoryIds.length} Selected` : `${selectedHistoryIds.length} محدد`}
+                    </div>
+                  </div>
+                )}
+
                 {history.length > 0 ? (
                   <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                     {history
-                      .filter(item => !showOnlyFavorites || item.isBookmarked)
+                      .filter(item => {
+                        // Favorite filter
+                        if (showOnlyFavorites && !item.isBookmarked) return false;
+                        // Topic filter
+                        if (historyTopicFilter !== "all" && (item.topic || "general") !== historyTopicFilter) return false;
+                        // Search text filter
+                        if (historySearchTerm) {
+                          const term = historySearchTerm.toLowerCase();
+                          const promptMatch = item.prompt.toLowerCase().includes(term);
+                          const solutionMatch = item.solution.toLowerCase().includes(term);
+                          if (!promptMatch && !solutionMatch) return false;
+                        }
+                        return true;
+                      })
                       .map((item) => {
                       const isActive = currentSolution?.id === item.id;
                       return (
                         <div
                           key={item.id}
-                          onClick={() => {
-                            setCurrentSolution(item);
-                            setActiveTab("ai-solver");
+                          onClick={(e) => {
+                            if (isSelectionMode) {
+                              toggleHistorySelection(item.id, e);
+                            } else {
+                              setCurrentSolution(item);
+                              setActiveTab("ai-solver");
+                            }
                           }}
                           className={`p-3.5 rounded-2xl border text-right transition-all duration-300 cursor-pointer flex justify-between items-center gap-2 ${
                             isActive
@@ -1773,6 +2217,18 @@ export default function App() {
                           }`}
                           style={{ direction: isRtl ? "rtl" : "ltr" }}
                         >
+                          {isSelectionMode && (
+                            <div 
+                              onClick={(e) => toggleHistorySelection(item.id, e)}
+                              className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
+                                selectedHistoryIds.includes(item.id)
+                                  ? "bg-indigo-600 border-indigo-600 scale-110 shadow-md"
+                                  : "bg-white border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
+                              }`}
+                            >
+                              {selectedHistoryIds.includes(item.id) && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                            </div>
+                          )}
                           <div className="flex-grow min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[10px] text-slate-400 block font-bold">{item.timestamp}</span>
@@ -1781,6 +2237,29 @@ export default function App() {
                             <p className="text-xs font-bold text-slate-700 truncate mt-1">
                               {item.prompt}
                             </p>
+                            
+                            {/* Classification Badge Selector */}
+                            <div className="flex items-center gap-1 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-[9px] text-slate-400 font-bold">{lang === "en" ? "Class:" : "التصنيف:"}</span>
+                              <select
+                                value={item.topic || "general"}
+                                onChange={(e) => {
+                                  const newTopic = e.target.value;
+                                  setHistory(prev => {
+                                    const updated = prev.map(h => h.id === item.id ? { ...h, topic: newTopic } : h);
+                                    localStorage.setItem("dr_tamer_chem_history", JSON.stringify(updated));
+                                    return updated;
+                                  });
+                                }}
+                                className="text-[9px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50/85 dark:bg-indigo-950/40 hover:bg-indigo-100 border border-indigo-100/50 dark:border-indigo-900/50 rounded-md px-1 py-0.5 cursor-pointer focus:outline-hidden"
+                              >
+                                <option value="general">{lang === "en" ? "General" : "عامة"}</option>
+                                <option value="organic">{lang === "en" ? "Organic" : "عضوية"}</option>
+                                <option value="stoichiometry">{lang === "en" ? "Stoichiometry" : "حساب كيميائي"}</option>
+                                <option value="thermo">{lang === "en" ? "Thermodynamics" : "حرارية"}</option>
+                                <option value="analytical">{lang === "en" ? "Analytical" : "تحليلية"}</option>
+                              </select>
+                            </div>
                           </div>
                           
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -1794,13 +2273,15 @@ export default function App() {
                                 <ImageIcon className="w-3 h-3" />
                               </span>
                             )}
-                            <button
-                              onClick={(e) => deleteHistoryItem(item.id, e)}
-                              className="w-7 h-7 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors"
-                              title="Delete item"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {!isSelectionMode && (
+                              <button
+                                onClick={(e) => deleteHistoryItem(item.id, e)}
+                                className="w-7 h-7 rounded-lg bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center transition-all shadow-sm scale-110 active:scale-95"
+                                title="Delete item"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1860,11 +2341,15 @@ export default function App() {
           </div>
         ) : activeTab === "exam-generator" ? (
           <div className="space-y-6">
-            <ExamGeneratorSection lang={lang} />
+            <ExamGeneratorSection lang={lang} selectedModel={selectedModel} />
           </div>
         ) : activeTab === "lectures" ? (
           <div className="space-y-6">
-            <LecturesSection lang={lang} />
+            <LecturesSection 
+              lang={lang} 
+              isAdmin={isAdmin}
+              setIsAdmin={setIsAdmin}
+            />
           </div>
         ) : activeTab === "important" ? (
           <div className="space-y-6">
@@ -1881,6 +2366,7 @@ export default function App() {
               topic={topic} 
               customQuestions={customQuizQuestions} 
               onResetCustom={() => setCustomQuizQuestions(null)}
+              selectedModel={selectedModel}
             />
           </div>
         )}
@@ -1892,6 +2378,48 @@ export default function App() {
         onClose={() => setShowLatexHelp(false)}
         lang={lang}
       />
+
+      {/* Custom Confirm Dialog Modal */}
+      {confirmDialog && confirmDialog.isOpen && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in"
+          style={{ direction: lang === "ar" ? "rtl" : "ltr" }}
+        >
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-md w-full border border-slate-100 dark:border-slate-800 shadow-2xl relative">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="flex-grow min-w-0">
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 leading-6">
+                  {confirmDialog.title}
+                </h3>
+                <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 mt-3 leading-relaxed">
+                  {confirmDialog.message}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="px-5 py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-black transition-all cursor-pointer"
+              >
+                {lang === "ar" ? "إلغاء" : "Cancel"}
+              </button>
+              <button
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  setConfirmDialog(null);
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-lg shadow-rose-100/55 dark:shadow-none transition-all cursor-pointer active:scale-95"
+              >
+                {lang === "ar" ? "تأكيد الحذف" : "Confirm Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modern High-End Footer */}
       <footer className="bg-slate-950 text-slate-400 border-t border-slate-900 py-10 text-center text-xs">

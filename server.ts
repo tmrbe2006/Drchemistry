@@ -163,20 +163,64 @@ Do not include any Markdown wrapper, do not include \`\`\`json or \`\`\`. Your o
 
     parts.push({ text: userPromptText });
 
-    // Retry logic
-    const MAX_RETRIES = 10;
+    // Modern models mapping and retry fallback logic
+    const MODERN_MODELS = {
+      flash: "gemini-3.6-flash",
+      lite: "gemini-3.1-flash-lite",
+      pro: "gemini-3.1-pro-preview"
+    };
+
+    function mapModel(requestedModel: string): string {
+      if (!requestedModel) return MODERN_MODELS.flash;
+      switch (requestedModel) {
+        case "gemini-2.0-flash":
+        case "gemini-1.5-flash":
+          return MODERN_MODELS.flash;
+        case "gemini-1.5-pro":
+          return MODERN_MODELS.pro;
+        case "deepseek-r1":
+        case "qwen-2.5":
+          return MODERN_MODELS.flash;
+        default:
+          if (requestedModel.startsWith("gemini-2.0") || requestedModel.startsWith("gemini-1.5")) {
+            return MODERN_MODELS.flash;
+          }
+          return requestedModel;
+      }
+    }
+
+    const MAX_RETRIES = 5;
     let lastError: any;
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
-        // Support dynamic model selection or fallback
-        const modelToUse = i === 0 ? (model || "gemini-2.0-flash") : "gemini-1.5-flash";
+        let modelToUse: string;
+        if (i === 0) {
+          modelToUse = mapModel(model);
+        } else if (i === 1) {
+          modelToUse = MODERN_MODELS.flash;
+        } else {
+          modelToUse = MODERN_MODELS.lite;
+        }
         
+        let finalSystemInstruction = systemInstruction;
+        if (model === "deepseek-r1") {
+          finalSystemInstruction += isEnglish 
+            ? "\n[Mode: DeepSeek-R1] Focus on extreme logical reasoning, chain-of-thought, and rigorous mathematical proofs." 
+            : "\n[وضع: DeepSeek-R1] ركز على المنطق العميق، وسلسلة الأفكار، والبراهين الرياضية الدقيقة.";
+        } else if (model === "qwen-2.5") {
+          finalSystemInstruction += isEnglish 
+            ? "\n[Mode: Qwen-2.5] Focus on highly structured, step-by-step technical documentation style with clean formatting." 
+            : "\n[وضع: Qwen-2.5] ركز على الأسلوب المنظم للغاية والخطوات المنهجية مع تنسيق تقني نظيف.";
+        }
+
+        console.log(`Using model: ${modelToUse} (Attempt ${i + 1}/${MAX_RETRIES})`);
+
         const client = getAiClient();
         const response = await client.models.generateContent({
           model: modelToUse,
-          contents: { parts },
+          contents: [{ parts }],
           config: {
-            systemInstruction: systemInstruction,
+            systemInstruction: finalSystemInstruction,
             temperature: isQuizRequest ? 0.85 : 0.2,
           },
         });
@@ -188,15 +232,11 @@ Do not include any Markdown wrapper, do not include \`\`\`json or \`\`\`. Your o
         return res.json({ solution });
       } catch (error: any) {
         lastError = error;
-        // Only retry if it's a 503 UNAVAILABLE or 429 RESOURCE_EXHAUSTED error
-        const isTransient = error.code === 503 || error.status === 503 || error.message.includes("503") ||
-                            error.code === 429 || error.status === 429 || error.message.includes("429");
-
-        if (isTransient) {
-          console.warn(`Attempt ${i + 1} failed (Transient Error):`, error.message);
-          
-          // Attempt to extract retry delay from error details if available
-          let delay = (4000 + Math.random() * 2000) * Math.pow(1.5, i); // Exponential backoff with jitter
+        console.warn(`Attempt ${i + 1} failed with error:`, error.message || error);
+        
+        // If we still have retries remaining, we wait and try the next model in fallback sequence
+        if (i < MAX_RETRIES - 1) {
+          let delay = (2000 + Math.random() * 1000) * Math.pow(1.5, i); // Exponential backoff with jitter
           
           if (error.details && Array.isArray(error.details)) {
             const retryInfo = error.details.find((d: any) => d['@type']?.includes('RetryInfo'));
@@ -208,11 +248,8 @@ Do not include any Markdown wrapper, do not include \`\`\`json or \`\`\`. Your o
             }
           }
           
+          console.log(`Waiting ${Math.round(delay)}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          // For other errors, fail fast
-          console.error("Non-transient error:", error);
-          throw error;
         }
       }
     }

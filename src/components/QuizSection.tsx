@@ -20,6 +20,7 @@ interface QuizSectionProps {
   topic: string; // general, organic, stoichiometry, thermo, analytical
   customQuestions?: Question[] | null;
   onResetCustom?: () => void;
+  selectedModel?: string;
 }
 
 // Complete pre-configured bilingual chemistry quiz questions bank (5 per topic)
@@ -309,7 +310,7 @@ const TAMER_TIPS: Record<string, { en: string; ar: string }> = {
   }
 };
 
-export default function QuizSection({ lang, topic, customQuestions, onResetCustom }: QuizSectionProps) {
+export default function QuizSection({ lang, topic, customQuestions, onResetCustom, selectedModel }: QuizSectionProps) {
   const isEn = lang === "en";
   const [currentQuestions, setCurrentQuestions] = useState<Question[]>(() => {
     try {
@@ -698,6 +699,7 @@ export default function QuizSection({ lang, topic, customQuestions, onResetCusto
           topic: topic,
           difficulty: difficulty,
           language: lang,
+          model: selectedModel || "gemini-2.0-flash",
         }),
       });
 

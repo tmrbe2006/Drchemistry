@@ -190,9 +190,9 @@ export default function MoleCalculator({ lang }: MoleCalculatorProps) {
 
           {/* Quick choices */}
           <div className="flex flex-wrap gap-2 mb-6">
-            {suggestions.map((item) => (
+            {suggestions.map((item, idx) => (
               <button
-                key={item.formula}
+                key={`${item.formula}-${idx}`}
                 onClick={() => {
                   setFormula(item.formula);
                   if (item.formula === "H2O") setMass("18.015");

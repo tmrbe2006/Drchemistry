@@ -12,24 +12,21 @@ interface Resource {
 
 interface LecturesSectionProps {
   lang: "ar" | "en";
+  isAdmin: boolean;
+  setIsAdmin: (val: boolean) => void;
 }
 
-export default function LecturesSection({ lang }: LecturesSectionProps) {
+export default function LecturesSection({ lang, isAdmin, setIsAdmin }: LecturesSectionProps) {
   const isEn = lang === "en";
   const [resources, setResources] = useState<Resource[]>([]);
   const [newUrl, setNewUrl] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newType, setNewType] = useState<"youtube" | "pdf">("youtube");
   const [isAdding, setIsAdding] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPrompt, setShowAdminPrompt] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
 
   useEffect(() => {
-    // Check if admin is already logged in
-    const adminSession = localStorage.getItem("dr_tamer_admin_active");
-    if (adminSession === "true") setIsAdmin(true);
-
     const saved = localStorage.getItem("dr_tamer_lectures_v2");
     if (saved) {
       setResources(JSON.parse(saved));

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 
 interface ExamGeneratorProps {
   lang: "ar" | "en";
+  selectedModel?: string;
 }
 
 interface Question {
@@ -14,7 +15,7 @@ interface Question {
   explanation: string;
 }
 
-export default function ExamGeneratorSection({ lang }: ExamGeneratorProps) {
+export default function ExamGeneratorSection({ lang, selectedModel }: ExamGeneratorProps) {
   const [topic, setTopic] = useState("general");
   const [difficulty, setDifficulty] = useState("beginner");
   const [generating, setGenerating] = useState(false);
@@ -56,7 +57,8 @@ export default function ExamGeneratorSection({ lang }: ExamGeneratorProps) {
           Return ONLY the JSON array.`,
           topic,
           difficulty,
-          language: lang
+          language: lang,
+          model: selectedModel || "gemini-2.0-flash"
         })
       });
 

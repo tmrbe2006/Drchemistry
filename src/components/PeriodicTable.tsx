@@ -169,9 +169,9 @@ export default function PeriodicTable({ lang }: PeriodicTableProps) {
         {/* Element Detail Panel */}
         <div className="bg-slate-50 dark:bg-slate-950/40 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 flex flex-col justify-between min-h-[350px]">
           {selectedElement ? (
-            <div className="h-full flex flex-col justify-between">
+            <div className="h-full flex flex-col justify-between animate-fade-in">
               <div>
-                <div className="flex justify-between items-start mb-5">
+                <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/60 dark:border-slate-800/60">
                   <div className="flex items-center gap-2">
                     <span className="bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-mono text-xs font-bold px-2.5 py-1 rounded-lg border border-teal-100 dark:border-teal-900">
                       Z = {selectedElement.number}
@@ -180,11 +180,27 @@ export default function PeriodicTable({ lang }: PeriodicTableProps) {
                       {CATEGORIES_INFO[selectedElement.category]?.label}
                     </span>
                   </div>
-                  <span className="text-xs text-slate-400 dark:text-slate-500 font-bold">
-                    {isEn 
-                      ? `Period ${selectedElement.period} | Group ${selectedElement.group}`
-                      : `الدورة ${selectedElement.period} | المجموعة ${selectedElement.group}`}
-                  </span>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 font-bold hidden sm:inline">
+                      {isEn 
+                        ? `Period ${selectedElement.period} | Group ${selectedElement.group}`
+                        : `الدورة ${selectedElement.period} | المجموعة ${selectedElement.group}`}
+                    </span>
+                    
+                    {/* Prominent Red Close Button */}
+                    <button
+                      onClick={() => {
+                        setSelectedElement(null);
+                        setIsModalOpen(false);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white dark:bg-rose-900/40 dark:hover:bg-rose-900/60 dark:text-rose-300 rounded-xl transition-all cursor-pointer font-black text-xs border border-rose-500/10 hover:scale-105 active:scale-95 shadow-xs"
+                      title={isEn ? "Close Details" : "إغلاق التفاصيل"}
+                    >
+                      <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>{isEn ? "Close" : "إغلاق"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-4 mb-5">
@@ -346,8 +362,24 @@ export default function PeriodicTable({ lang }: PeriodicTableProps) {
       {isModalOpen && selectedElement && (
         <div 
           onClick={() => setIsModalOpen(false)}
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 no-print animate-fade-in"
+          className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[150] flex items-center justify-center p-4 no-print animate-fade-in"
         >
+          {/* Floating Close Button at the Top of the Viewport */}
+          <button
+            onClick={() => {
+              setIsModalOpen(false);
+              setSelectedElement(null);
+            }}
+            className="fixed top-4 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-2xl shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95 flex items-center gap-2 z-[160] border border-rose-500 font-black text-sm"
+            style={{
+              top: "1.5rem",
+              [lang === "ar" ? "left" : "right"]: "1.5rem"
+            }}
+          >
+            <X className="w-4 h-4 shrink-0 stroke-[3]" />
+            <span>{lang === "ar" ? "إغلاق النافذة ×" : "Close Window ×"}</span>
+          </button>
+
           <div 
             onClick={(e) => e.stopPropagation()}
             className="bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl relative animate-scale-up"
@@ -355,11 +387,16 @@ export default function PeriodicTable({ lang }: PeriodicTableProps) {
             {/* Header styled with the category color */}
             <div className={`p-6 text-white ${CATEGORIES_INFO[selectedElement.category]?.color || "bg-teal-600"} relative`}>
               <button
-                onClick={() => setIsModalOpen(false)}
-                className="absolute top-4 right-4 text-white/90 hover:text-white hover:bg-white/20 p-2 rounded-full transition-all cursor-pointer z-50 flex items-center justify-center bg-black/10 hover:scale-105"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setSelectedElement(null);
+                }}
+                className="absolute top-4 text-white hover:bg-white/20 px-3 py-1.5 rounded-full transition-all cursor-pointer z-50 flex items-center gap-1.5 bg-black/25 hover:scale-105 font-black text-xs border border-white/10 shadow-xs"
+                style={lang === "ar" ? { left: "1rem", right: "auto" } : { right: "1rem", left: "auto" }}
                 title={isEn ? "Close" : "إغلاق"}
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 shrink-0" />
+                <span>{isEn ? "Close" : "إغلاق"}</span>
               </button>
               
               <div className="flex items-center gap-3 mb-2">
