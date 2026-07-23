@@ -49,7 +49,7 @@ interface MoleculeData {
   lonePairs?: { x: number; y: number; z: number }[]; // optional lone pairs coordinates
 }
 
-const MOLECULES: Record<string, MoleculeData> = {
+export const MOLECULES: Record<string, MoleculeData> = {
   H2O: {
     formula: "H₂O",
     nameEn: "Water",

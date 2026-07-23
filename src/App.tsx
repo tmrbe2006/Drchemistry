@@ -66,8 +66,596 @@ import {
   Filter,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Copy,
+  Beaker,
+  Pin,
+  Eye,
+  EyeOff
 } from "lucide-react";
+import { MOLECULES } from "./components/MolecularGeometryVisualizer";
+
+// Chemical formula detector and renderer helpers
+const COMMON_ELEMENTS = [
+  "He", "Li", "Be", "Ne", "Na", "Mg", "Al", "Si", "Cl", "Ar", "Ca", "Sc", "Ti", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+  "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb",
+  "Te", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf",
+  "Ta", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "Np", "Pu",
+  "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Nh", "Fl",
+  "Mc", "Lv", "Ts", "Og",
+  "H", "B", "C", "N", "O", "F", "K", "V", "Y", "I", "W", "U"
+];
+
+function parseChemicalFormula(str: string): { success: boolean; elementCount: number; hasSubscript: boolean } | null {
+  if (!str || !/^[A-Z(]/.test(str)) return null;
+  
+  let i = 0;
+  let elementCount = 0;
+  let hasSubscript = false;
+  
+  while (i < str.length) {
+    const char = str[i];
+    
+    if (char === "(" || char === ")") {
+      i++;
+      continue;
+    }
+    
+    if (/\d/.test(char)) {
+      hasSubscript = true;
+      i++;
+      continue;
+    }
+    
+    let found = false;
+    for (const el of COMMON_ELEMENTS) {
+      if (str.startsWith(el, i)) {
+        elementCount++;
+        i += el.length;
+        found = true;
+        break;
+      }
+    }
+    
+    if (!found) return null;
+  }
+  
+  return { success: true, elementCount, hasSubscript };
+}
+
+function isChemicalFormula(str: string): boolean {
+  if (!str || str.length < 2) return false;
+  
+  const blacklist = new Set([
+    "IN", "BY", "ON", "IF", "IS", "US", "SO", "NO", "HE", "AM", "AT", "AN", "OR", "TO", "UP", "WE", "ME", "MY", "GO", "DO", "AS"
+  ]);
+  if (blacklist.has(str.toUpperCase())) return false;
+  
+  const parsed = parseChemicalFormula(str);
+  if (!parsed || !parsed.success) return false;
+  
+  if (parsed.elementCount === 1) {
+    return parsed.hasSubscript;
+  }
+  
+  return true;
+}
+
+function renderFormulaWithSubscripts(formula: string) {
+  const segments = formula.split(/(\d+)/g);
+  return segments.map((seg, idx) => {
+    if (/^\d+$/.test(seg)) {
+      return (
+        <sub key={idx} className="text-[75%] leading-none font-extrabold align-sub select-none mx-[0.5px]">
+          {seg}
+        </sub>
+      );
+    }
+    return <span key={idx} className="font-extrabold tracking-wide">{seg}</span>;
+  });
+}
+
+// Formula Normalization helper
+export function normalizeFormula(formula: string): string {
+  if (!formula) return "";
+  const subscriptMap: Record<string, string> = {
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9"
+  };
+  let normalized = formula;
+  for (const [sub, num] of Object.entries(subscriptMap)) {
+    normalized = normalized.replaceAll(sub, num);
+  }
+  return normalized.replace(/\s+/g, "");
+}
+
+// Parser to find elemental composition
+export function parseFormulaToComposition(formula: string): Record<string, number> {
+  const composition: Record<string, number> = {};
+  const normalized = normalizeFormula(formula);
+  const elementRegex = /([A-Z][a-z]*)(\d*)/g;
+  let match;
+  while ((match = elementRegex.exec(normalized)) !== null) {
+    const el = match[1];
+    const countStr = match[2];
+    const count = countStr ? parseInt(countStr, 10) : 1;
+    composition[el] = (composition[el] || 0) + count;
+  }
+  return composition;
+}
+
+// Atomic weights for common elements
+export const ATOMIC_WEIGHTS: Record<string, number> = {
+  H: 1.008, He: 4.0026, Li: 6.94, Be: 9.0122, B: 10.81, C: 12.011, N: 14.007, O: 15.999, F: 18.998, Ne: 20.180,
+  Na: 22.990, Mg: 24.305, Al: 26.982, Si: 28.085, P: 30.974, S: 32.06, Cl: 35.45, Ar: 39.948, K: 39.098, Ca: 40.078,
+  Sc: 44.956, Ti: 47.867, V: 50.942, Cr: 51.996, Mn: 54.938, Fe: 55.845, Co: 58.933, Ni: 58.693, Cu: 63.546, Zn: 65.38,
+  Ag: 107.87, I: 126.90, Pt: 195.08, Au: 196.97, Hg: 200.59, Pb: 207.2, U: 238.03
+};
+
+// Dynamic Molecular Weight Calculator
+export function calculateMolecularWeight(formula: string): { weight: number; composition: Record<string, number>; unrecognized: string[] } {
+  const comp = parseFormulaToComposition(formula);
+  let total = 0;
+  const unrecognized: string[] = [];
+  for (const [el, count] of Object.entries(comp)) {
+    const wt = ATOMIC_WEIGHTS[el];
+    if (wt !== undefined) {
+      total += wt * count;
+    } else {
+      unrecognized.push(el);
+    }
+  }
+  return { weight: Number(total.toFixed(3)), composition: comp, unrecognized };
+}
+
+// Map any chemical formula to known MOLECULES database entry
+export function getMoleculeDataByFormula(formula: string) {
+  const norm = normalizeFormula(formula).toUpperCase();
+  for (const [key, val] of Object.entries(MOLECULES)) {
+    if (key.toUpperCase() === norm || normalizeFormula(val.formula).toUpperCase() === norm) {
+      return val;
+    }
+  }
+  return null;
+}
+
+// Mini SVG 3D-like Molecule Preview Component
+export function MoleculeMiniPreview({ formula, lang }: { formula: string; lang: "ar" | "en" }) {
+  const data = getMoleculeDataByFormula(formula);
+  if (!data) return null;
+
+  const scale = 18;
+  const centerX = 40;
+  const centerY = 40;
+  const theta = -0.3;
+  const phi = 0.4;
+
+  const rotatePoint = (x: number, y: number, z: number) => {
+    const cosPhi = Math.cos(phi);
+    const sinPhi = Math.sin(phi);
+    const x1 = x * cosPhi - z * sinPhi;
+    const z1 = x * sinPhi + z * cosPhi;
+    const y1 = y;
+
+    const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
+    const x2 = x1;
+    const y2 = y1 * cosTheta - z1 * sinTheta;
+    const z2 = y1 * sinTheta + z1 * cosTheta;
+
+    return { x: x2, y: y2, z: z2 };
+  };
+
+  const projected = data.atoms.map((atom) => {
+    const rotated = rotatePoint(atom.x, atom.y, atom.z);
+    return {
+      ...atom,
+      px: centerX + rotated.x * scale,
+      py: centerY + rotated.y * scale,
+      pz: rotated.z
+    };
+  });
+
+  const sortedIndices = [...projected]
+    .map((atom, idx) => ({ atom, idx }))
+    .sort((a, b) => a.atom.pz - b.atom.pz);
+
+  const isEn = lang === "en";
+
+  return (
+    <div className="flex flex-col items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800 shadow-md w-[110px] select-none mt-1.5">
+      <svg width="80" height="80" viewBox="0 0 80 80" className="drop-shadow-xs">
+        {data.bonds.map(([u, v], idx) => {
+          const atomU = projected[u];
+          const atomV = projected[v];
+          if (!atomU || !atomV) return null;
+          return (
+            <line
+              key={idx}
+              x1={atomU.px}
+              y1={atomU.py}
+              x2={atomV.px}
+              y2={atomV.py}
+              stroke="#818cf8"
+              strokeWidth="2"
+              strokeLinecap="round"
+              opacity="0.8"
+            />
+          );
+        })}
+        {sortedIndices.map(({ atom, idx }) => {
+          const finalRadius = atom.radius * 0.45;
+          return (
+            <g key={idx}>
+              <circle
+                cx={atom.px}
+                cy={atom.py}
+                r={finalRadius}
+                fill={atom.color}
+                stroke="#020617"
+                strokeWidth="0.8"
+              />
+              <text
+                x={atom.px}
+                y={atom.py + finalRadius * 0.35}
+                textAnchor="middle"
+                fill={atom.color === "#f1f5f9" ? "#0f172a" : "#ffffff"}
+                fontSize="7px"
+                fontWeight="extrabold"
+                fontFamily="monospace"
+              >
+                {atom.symbol}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="text-[8px] text-indigo-300 font-extrabold font-mono text-center leading-tight line-clamp-1">
+        {isEn ? data.nameEn : data.nameAr}
+      </div>
+    </div>
+  );
+}
+
+export interface ChemicalProperties {
+  pH: number;
+  reactivity: number;
+  pHCategory: "strong_acid" | "weak_acid" | "neutral" | "weak_base" | "strong_base";
+  reactivityCategory: "inert" | "low" | "moderate" | "high";
+}
+
+export function estimateChemicalProperties(formula: string): ChemicalProperties {
+  const normalized = normalizeFormula(formula);
+  const comp = parseFormulaToComposition(normalized);
+  
+  // 1. pH Estimation
+  let pH = 7.0; // Default to neutral
+  
+  // Specific presets
+  const normUpper = normalized.toUpperCase();
+  if (normUpper === "H2O") {
+    pH = 7.0;
+  } else if (normUpper === "CO2") {
+    pH = 5.5; // Weak acid in solution
+  } else if (normUpper === "CH4") {
+    pH = 7.0; // Neutral organic
+  } else if (normUpper === "NH3") {
+    pH = 11.6; // Weak base
+  } else if (normUpper === "BF3") {
+    pH = 3.0; // Strong Lewis acid
+  } else if (normUpper === "SF6") {
+    pH = 7.0; // Extremely inert, neutral
+  } else if (normUpper === "BECL2") {
+    pH = 5.0; // Weak acid in water
+  } else if (normUpper === "HCL" || normUpper === "HBR" || normUpper === "HI" || normUpper === "HNO3" || normUpper === "H2SO4" || normUpper === "HCLO4") {
+    pH = 1.0; // Strong mineral acids
+  } else if (normUpper === "HF" || normUpper === "H2CO3" || normUpper === "CH3COOH" || normUpper === "H3PO4" || normUpper === "HCOOH") {
+    pH = 3.5; // Weak acids
+  } else if (normUpper === "NAOH" || normUpper === "KOH" || normUpper === "LIOH" || normUpper === "CA(OH)2" || normUpper === "BA(OH)2") {
+    pH = 13.5; // Strong bases
+  } else if (normUpper === "NH4OH" || normUpper === "MG(OH)2" || normUpper === "AL(OH)3") {
+    pH = 10.0; // Weak bases
+  } else {
+    // Dynamic heuristics
+    const hasH = comp["H"] !== undefined;
+    const hasOH = normalized.endsWith("OH") || normalized.includes("(OH)");
+    
+    if (hasOH) {
+      // Hydroxide base
+      const hasMetal = Object.keys(comp).some(el => ["Na", "K", "Li", "Ca", "Ba", "Mg"].includes(el));
+      pH = hasMetal ? 13.0 : 10.5;
+    } else if (hasH) {
+      // Acids or hydrides
+      const nonMetals = ["Cl", "Br", "I", "S", "N", "P", "F"];
+      const hasNonMetal = Object.keys(comp).some(el => nonMetals.includes(el));
+      if (hasNonMetal) {
+        if (normalized.startsWith("H")) {
+          pH = ["Cl", "Br", "I", "S"].some(el => comp[el] !== undefined) ? 1.5 : 3.5;
+        } else if (normalized.endsWith("COOH")) {
+          pH = 3.8; // Carboxylic acid
+        } else {
+          pH = 4.5;
+        }
+      }
+    }
+  }
+
+  // 2. Reactivity Estimation (0 to 10)
+  let reactivity = 2; // Default to low/stable
+  
+  if (normUpper === "SF6" || normUpper === "HE" || normUpper === "NE" || normUpper === "AR") {
+    reactivity = 0; // Extremely inert
+  } else if (normUpper === "H2O" || normUpper === "CO2") {
+    reactivity = 1; // Extremely stable
+  } else if (normUpper === "CH4") {
+    reactivity = 3; // Stable, but flammable
+  } else if (normUpper === "NH3") {
+    reactivity = 4; // Moderate
+  } else if (normUpper === "BECL2") {
+    reactivity = 6; // Water-reactive
+  } else if (normUpper === "BF3") {
+    reactivity = 8; // Very high Lewis acid reactivity
+  } else if (["HCL", "HNO3", "H2SO4", "NAOH", "KOH"].includes(normUpper)) {
+    reactivity = 8; // Highly corrosive/reactive
+  } else {
+    // Dynamic heuristics
+    let score = 2;
+    const elements = Object.keys(comp);
+    
+    const hasAlkali = elements.some(el => ["Na", "K", "Li"].includes(el));
+    const hasAlkalineEarth = elements.some(el => ["Ca", "Mg", "Ba", "Be"].includes(el));
+    const hasHalogen = elements.some(el => ["F", "Cl", "Br", "I"].includes(el));
+    const hasTransitionMetal = elements.some(el => ["Fe", "Cu", "Zn", "Ag", "Au", "Pt", "Cr", "Mn", "Ni", "Co"].includes(el));
+    
+    if (hasAlkali) score += 4;
+    if (hasHalogen) score += 3;
+    if (hasAlkalineEarth) score += 2;
+    if (hasTransitionMetal) score += 1;
+    
+    // Cap score at 10
+    reactivity = Math.min(score, 10);
+  }
+
+  // Categories
+  let pHCategory: ChemicalProperties["pHCategory"] = "neutral";
+  if (pH < 3.0) pHCategory = "strong_acid";
+  else if (pH < 6.5) pHCategory = "weak_acid";
+  else if (pH > 11.5) pHCategory = "strong_base";
+  else if (pH > 7.5) pHCategory = "weak_base";
+
+  let reactivityCategory: ChemicalProperties["reactivityCategory"] = "moderate";
+  if (reactivity <= 1) reactivityCategory = "inert";
+  else if (reactivity <= 3) reactivityCategory = "low";
+  else if (reactivity >= 8) reactivityCategory = "high";
+
+  return { pH, reactivity, pHCategory, reactivityCategory };
+}
+
+export function getChemicalBadgeStyles(pH: number, reactivity: number) {
+  if (pH < 3.0) {
+    // Strong Acid (Deep Warm - Rose/Red)
+    return {
+      bg: "bg-rose-50/90 dark:bg-rose-950/30",
+      border: "border-rose-200 dark:border-rose-900/50 hover:border-rose-300 dark:hover:border-rose-800",
+      text: "text-rose-850 dark:text-rose-300",
+      indicatorColor: "bg-rose-500",
+      glow: "shadow-[0_0_8px_rgba(244,63,94,0.12)] dark:shadow-[0_0_12px_rgba(244,63,94,0.25)]",
+      dotStyle: "bg-rose-500 dark:bg-rose-400"
+    };
+  } else if (pH < 6.5) {
+    // Weak Acid (Warm - Amber/Orange)
+    return {
+      bg: "bg-amber-50/90 dark:bg-amber-950/30",
+      border: "border-amber-200 dark:border-amber-900/50 hover:border-amber-300 dark:hover:border-amber-800",
+      text: "text-amber-850 dark:text-amber-300",
+      indicatorColor: "bg-amber-500",
+      glow: "",
+      dotStyle: "bg-amber-500 dark:bg-amber-400"
+    };
+  } else if (pH > 11.5) {
+    // Strong Base (Deep Cool - Violet/Purple)
+    return {
+      bg: "bg-violet-50/90 dark:bg-violet-950/30",
+      border: "border-violet-200 dark:border-violet-900/50 hover:border-violet-300 dark:hover:border-violet-800",
+      text: "text-violet-850 dark:text-violet-300",
+      indicatorColor: "bg-violet-500",
+      glow: "shadow-[0_0_8px_rgba(139,92,246,0.12)] dark:shadow-[0_0_12px_rgba(139,92,246,0.25)]",
+      dotStyle: "bg-violet-500 dark:bg-violet-400"
+    };
+  } else if (pH > 7.5) {
+    // Weak Base (Cool - Indigo/Blue)
+    return {
+      bg: "bg-indigo-50/90 dark:bg-indigo-950/30",
+      border: "border-indigo-200 dark:border-indigo-900/50 hover:border-indigo-300 dark:hover:border-indigo-800",
+      text: "text-indigo-850 dark:text-indigo-300",
+      indicatorColor: "bg-indigo-500",
+      glow: "",
+      dotStyle: "bg-indigo-500 dark:bg-indigo-400"
+    };
+  } else {
+    // Neutral (Balanced Green - Emerald)
+    return {
+      bg: "bg-emerald-50/90 dark:bg-emerald-950/30",
+      border: "border-emerald-200 dark:border-emerald-900/50 hover:border-emerald-300 dark:hover:border-emerald-800",
+      text: "text-emerald-850 dark:text-emerald-300",
+      indicatorColor: "bg-emerald-500",
+      glow: "",
+      dotStyle: "bg-emerald-500 dark:bg-emerald-400"
+    };
+  }
+}
+
+const pHLabels: Record<string, { en: string; ar: string }> = {
+  strong_acid: { en: "Strong Acid", ar: "حمض قوي" },
+  weak_acid: { en: "Weak Acid", ar: "حمض ضعيف" },
+  neutral: { en: "Neutral", ar: "متعادل" },
+  weak_base: { en: "Weak Base", ar: "قاعدة ضعيفة" },
+  strong_base: { en: "Strong Base", ar: "قاعدة قوية" }
+};
+
+const reactivityLabels: Record<string, { en: string; ar: string }> = {
+  inert: { en: "Inert", ar: "خامل" },
+  low: { en: "Low Reactivity", ar: "تفاعل منخفض" },
+  moderate: { en: "Moderate Reactivity", ar: "تفاعل متوسط" },
+  high: { en: "Highly Reactive", ar: "عالي التفاعل" }
+};
+
+// Interactive chemical formula badge with tooltip, copy, pin, and 3D visual preview thumbnail
+export function ChemicalFormulaBadge({ formula, lang }: { formula: string; lang: "ar" | "en" }) {
+  const [copied, setCopied] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [visualHintEnabled, setVisualHintEnabled] = useState(true);
+  const isEn = lang === "en";
+
+  useEffect(() => {
+    const checkSettings = () => {
+      // Check Pin State
+      const cachedPins = localStorage.getItem("dr_tamer_pinned_formulas");
+      const list: string[] = cachedPins ? JSON.parse(cachedPins) : [];
+      setIsPinned(list.includes(normalizeFormula(formula)));
+
+      // Check Visual Hint Mode State
+      const hintSaved = localStorage.getItem("dr_tamer_visual_hint") !== "false";
+      setVisualHintEnabled(hintSaved);
+    };
+
+    checkSettings();
+    window.addEventListener("pinned-formulas-updated", checkSettings);
+    window.addEventListener("visual-hint-updated", checkSettings);
+
+    return () => {
+      window.removeEventListener("pinned-formulas-updated", checkSettings);
+      window.removeEventListener("visual-hint-updated", checkSettings);
+    };
+  }, [formula]);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(formula);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePinToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const cachedPins = localStorage.getItem("dr_tamer_pinned_formulas");
+    let list: string[] = cachedPins ? JSON.parse(cachedPins) : [];
+    const norm = normalizeFormula(formula);
+    if (list.includes(norm)) {
+      list = list.filter(f => f !== norm);
+    } else {
+      list.push(norm);
+    }
+    localStorage.setItem("dr_tamer_pinned_formulas", JSON.stringify(list));
+    window.dispatchEvent(new Event("pinned-formulas-updated"));
+  };
+
+  const hasStructure = getMoleculeDataByFormula(formula) !== null;
+  const { pH, reactivity, pHCategory, reactivityCategory } = estimateChemicalProperties(formula);
+  const styles = getChemicalBadgeStyles(pH, reactivity);
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 mx-0.5 ${styles.bg} border ${styles.border} ${styles.text} ${styles.glow} rounded-lg group/formula relative font-mono text-sm leading-none transition-all duration-300 select-none`}
+    >
+      {/* Tiny dynamic indicator dot */}
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        {reactivity >= 8 && (
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${styles.dotStyle} opacity-75`}></span>
+        )}
+        <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${styles.dotStyle}`}></span>
+      </span>
+
+      <span className="flex items-baseline">
+        {renderFormulaWithSubscripts(formula)}
+      </span>
+      
+      {/* Copy Button */}
+      <button
+        onClick={handleCopy}
+        className="opacity-0 group-hover/formula:opacity-100 transition-opacity duration-200 flex items-center justify-center shrink-0 w-3.5 h-3.5 hover:opacity-80 cursor-pointer"
+        title={isEn ? "Copy formula" : "نسخ الصيغة"}
+      >
+        {copied ? <Check className="w-2.5 h-2.5 stroke-[3]" /> : <Copy className="w-2.5 h-2.5" />}
+      </button>
+
+      {/* Pin Button */}
+      <button
+        onClick={handlePinToggle}
+        className="opacity-0 group-hover/formula:opacity-100 transition-opacity duration-200 flex items-center justify-center shrink-0 w-3.5 h-3.5 hover:opacity-80 cursor-pointer"
+        title={isPinned ? (isEn ? "Unpin from Dashboard" : "إلغاء التثبيت") : (isEn ? "Pin to Dashboard" : "تثبيت باللوحة")}
+      >
+        <Pin className={`w-2.5 h-2.5 ${isPinned ? "fill-indigo-500 stroke-indigo-500" : ""}`} />
+      </button>
+
+      {/* Interactive Tooltip Card on Hover */}
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-3 py-2 bg-slate-900 dark:bg-slate-950 text-white text-[10px] font-black rounded-xl shadow-xl opacity-0 group-hover/formula:opacity-100 transition-all duration-250 z-50 flex flex-col items-center gap-1 min-w-[145px]">
+        <span className="flex items-center gap-1 text-center font-bold text-slate-200">
+          {copied ? (
+            <>
+              <Check className="w-2.5 h-2.5 stroke-[3] text-emerald-400 shrink-0" />
+              <span>{isEn ? "Copied!" : "تم النسخ!"}</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-2.5 h-2.5 text-slate-300 shrink-0" />
+              <span>{isEn ? "Click button to copy" : "اضغط للنسخ"}</span>
+            </>
+          )}
+        </span>
+
+        {/* Physical Property Indicators Section */}
+        <div className="w-full h-[1px] bg-slate-800 dark:bg-slate-900 my-1" />
+        <div className="w-full space-y-1 text-slate-300 text-[9px] font-bold">
+          <div className="flex justify-between items-center gap-2">
+            <span>{isEn ? "pH Indicator:" : "مؤشر الحموضة:"}</span>
+            <span className="flex items-center gap-1 text-slate-100">
+              <span className={`w-1.5 h-1.5 rounded-full ${styles.indicatorColor}`} />
+              {pH.toFixed(1)} ({pHLabels[pHCategory][lang]})
+            </span>
+          </div>
+          <div className="flex justify-between items-center gap-2">
+            <span>{isEn ? "Reactivity:" : "درجة التفاعل:"}</span>
+            <span className="text-slate-100">
+              {reactivity}/10 ({reactivityLabels[reactivityCategory][lang]})
+            </span>
+          </div>
+        </div>
+
+        {visualHintEnabled && hasStructure && (
+          <>
+            <div className="w-full h-[1px] bg-slate-800 dark:bg-slate-900 my-1" />
+            <MoleculeMiniPreview formula={formula} lang={lang} />
+          </>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function highlightChemicalFormulasAndGlossary(
+  text: string,
+  lang: "ar" | "en",
+  highlightGlossaryTerms: (text: string, lang: "ar" | "en", key?: any) => React.ReactNode
+): React.ReactNode {
+  if (!text) return text;
+  
+  // Split text into candidate words using a pattern that captures sequences of letters, digits, and parentheses starting with capital letters
+  const parts = text.split(/([A-Z][A-Za-z0-9()]*)/g);
+  
+  return (
+    <>
+      {parts.map((part, idx) => {
+        // Candidates are at odd indices
+        if (idx % 2 === 1 && isChemicalFormula(part)) {
+          return <ChemicalFormulaBadge key={idx} formula={part} lang={lang} />;
+        }
+        // Even indices or non-chemical-formula candidates are regular text, so run glossary highlights
+        return <Fragment key={idx}>{highlightGlossaryTerms(part, lang, idx)}</Fragment>;
+      })}
+    </>
+  );
+}
 
 // Interactive Typewriter Markdown Component to simulate a living tutor
 interface TypewriterMarkdownProps {
@@ -75,9 +663,10 @@ interface TypewriterMarkdownProps {
   lang: "ar" | "en";
   highlightGlossaryTerms: (text: string, lang: "ar" | "en", key?: any) => React.ReactNode;
   useKatex?: boolean;
+  detectFormulas?: boolean;
 }
 
-export function TypewriterMarkdown({ content, lang, highlightGlossaryTerms, useKatex }: TypewriterMarkdownProps) {
+export function TypewriterMarkdown({ content, lang, highlightGlossaryTerms, useKatex, detectFormulas = true }: TypewriterMarkdownProps) {
   const [displayedText, setDisplayedText] = useState("");
   
   useEffect(() => {
@@ -105,24 +694,58 @@ export function TypewriterMarkdown({ content, lang, highlightGlossaryTerms, useK
     return () => clearInterval(interval);
   }, [content, useKatex]);
 
+  const processChildren = (node: React.ReactNode): React.ReactNode => {
+    if (typeof node === "string") {
+      return detectFormulas
+        ? highlightChemicalFormulasAndGlossary(node, lang, highlightGlossaryTerms)
+        : highlightGlossaryTerms(node, lang);
+    }
+    if (Array.isArray(node)) {
+      return node.map((child, idx) => <Fragment key={idx}>{processChildren(child)}</Fragment>);
+    }
+    if (React.isValidElement(node)) {
+      const element = node as React.ReactElement<any>;
+      if (element.props && element.props.children) {
+        return React.cloneElement(element, {
+          ...element.props,
+          children: processChildren(element.props.children)
+        });
+      }
+    }
+    return node;
+  };
+
   return (
     <div className="markdown-body transition-all duration-300">
       <Markdown
         remarkPlugins={useKatex ? [remarkMath, remarkGfm] : [remarkGfm]}
         rehypePlugins={useKatex ? [rehypeKatex] : []}
         components={{
-          p: ({ children }) => {
-            if (typeof children === "string") {
-              return <p className="mb-4 text-slate-700 dark:text-slate-300 leading-relaxed font-semibold">{highlightGlossaryTerms(children, lang)}</p>;
-            }
-            return <p className="mb-4 text-slate-700 dark:text-slate-300 leading-relaxed font-semibold">{children}</p>;
-          },
-          li: ({ children }) => {
-            if (typeof children === "string") {
-              return <li className="mb-2 text-slate-700 dark:text-slate-300 font-semibold">{highlightGlossaryTerms(children, lang)}</li>;
-            }
-            return <li className="mb-2 text-slate-700 dark:text-slate-300 font-semibold">{children}</li>;
-          },
+          p: ({ children }) => (
+            <p className="mb-4 text-slate-700 dark:text-slate-300 leading-relaxed font-semibold">
+              {processChildren(children)}
+            </p>
+          ),
+          li: ({ children }) => (
+            <li className="mb-2 text-slate-700 dark:text-slate-300 font-semibold">
+              {processChildren(children)}
+            </li>
+          ),
+          h1: ({ children }) => (
+            <h1 className="text-2xl font-extrabold mb-4 text-slate-900 dark:text-white">
+              {processChildren(children)}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-xl font-extrabold mb-3 text-slate-900 dark:text-white">
+              {processChildren(children)}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-lg font-bold mb-2 text-slate-900 dark:text-white">
+              {processChildren(children)}
+            </h3>
+          ),
         }}
       >
         {displayedText}
@@ -383,6 +1006,13 @@ export default function App() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [highContrast, setHighContrast] = useState(false);
   const [useKatex, setUseKatex] = useState(false);
+  const [detectFormulas, setDetectFormulas] = useState(true);
+  const [showVisualHintMode, setShowVisualHintMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("dr_tamer_visual_hint") !== "false";
+    }
+    return true;
+  });
   const [showQuickReference, setShowQuickReference] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => {
@@ -437,10 +1067,12 @@ export default function App() {
     const savedTheme = localStorage.getItem("dr_tamer_theme") as "light" | "dark" | null;
     const savedContrast = localStorage.getItem("dr_tamer_high_contrast") === "true";
     const savedKatex = localStorage.getItem("dr_tamer_use_katex") === "true";
+    const savedDetectFormulas = localStorage.getItem("dr_tamer_detect_formulas") !== "false";
     const savedPrompt = localStorage.getItem("dr_tamer_saved_prompt");
     
     setHighContrast(savedContrast);
     setUseKatex(savedKatex);
+    setDetectFormulas(savedDetectFormulas);
     if (savedContrast) document.documentElement.classList.add("high-contrast");
     if (savedPrompt) setPrompt(savedPrompt);
 
@@ -493,6 +1125,19 @@ export default function App() {
     const newKatex = !useKatex;
     setUseKatex(newKatex);
     localStorage.setItem("dr_tamer_use_katex", newKatex.toString());
+  };
+
+  const toggleDetectFormulas = () => {
+    const newDetectFormulas = !detectFormulas;
+    setDetectFormulas(newDetectFormulas);
+    localStorage.setItem("dr_tamer_detect_formulas", newDetectFormulas.toString());
+  };
+
+  const toggleVisualHintMode = () => {
+    const newHint = !showVisualHintMode;
+    setShowVisualHintMode(newHint);
+    localStorage.setItem("dr_tamer_visual_hint", newHint.toString());
+    window.dispatchEvent(new Event("visual-hint-updated"));
   };
 
   const [isDragging, setIsDragging] = useState(false);
@@ -841,6 +1486,90 @@ export default function App() {
         setIsSelectionMode(false);
       }
     });
+  };
+
+  const handleExtractFormulas = (e: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (selectedHistoryIds.length === 0) return;
+
+    const selectedItems = history.filter(h => selectedHistoryIds.includes(h.id));
+    const formulaMap = new Map<string, { occurrences: number; sources: string[]; topics: string[]; weight: number }>();
+
+    const extractFormulasFromText = (text: string): string[] => {
+      if (!text) return [];
+      const parts = text.split(/([A-Z][A-Za-z0-9()]*)/g);
+      const found: string[] = [];
+      for (const part of parts) {
+        if (isChemicalFormula(part)) {
+          found.push(part);
+        }
+      }
+      return found;
+    };
+
+    selectedItems.forEach(item => {
+      const fromPrompt = extractFormulasFromText(item.prompt || "");
+      const fromSolution = extractFormulasFromText(item.solution || "");
+      const allDetected = [...fromPrompt, ...fromSolution];
+
+      allDetected.forEach(formula => {
+        const norm = normalizeFormula(formula);
+        if (!norm) return;
+        const existing = formulaMap.get(norm) || { occurrences: 0, sources: [], topics: [], weight: 0 };
+        existing.occurrences += 1;
+        
+        const sourceTitle = item.prompt 
+          ? item.prompt.substring(0, 50).trim().replace(/[,\n"]/g, " ") + "..." 
+          : "Chemistry Solution";
+        if (!existing.sources.includes(sourceTitle)) {
+          existing.sources.push(sourceTitle);
+        }
+        
+        const topicName = item.topic || "general";
+        if (!existing.topics.includes(topicName)) {
+          existing.topics.push(topicName);
+        }
+        
+        if (!existing.weight) {
+          const calc = calculateMolecularWeight(norm);
+          existing.weight = calc.weight;
+        }
+
+        formulaMap.set(norm, existing);
+      });
+    });
+
+    if (formulaMap.size === 0) {
+      alert(
+        lang === "en" 
+          ? "No chemical formulas were detected in the selected history items!" 
+          : "لم يتم العثور على أي صيغ كيميائية في عناصر السجل المحددة!"
+      );
+      return;
+    }
+
+    let csvContent = "\uFEFF"; // BOM for Excel UTF-8 support
+    csvContent += "Chemical Formula,Molecular Weight (g/mol),Occurrences,Category,Detected In\r\n";
+
+    formulaMap.forEach((data, formula) => {
+      const row = [
+        formula,
+        data.weight > 0 ? data.weight : "N/A",
+        data.occurrences,
+        `"${data.topics.join("; ")}"`,
+        `"${data.sources.join("; ")}"`
+      ].join(",");
+      csvContent += row + "\r\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `extracted_chemical_formulas_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleExportSelectedToPDF = (e: React.MouseEvent) => {
@@ -1385,6 +2114,28 @@ export default function App() {
               <Sigma className={`w-4 h-4 ${useKatex ? "text-teal-600" : "text-slate-600"}`} />
             </button>
 
+            {/* Chemical Formula Auto-Detector Toggle */}
+            <button
+              onClick={toggleDetectFormulas}
+              className={`flex items-center justify-center w-10 h-10 bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-850 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-xl border border-slate-200/50 dark:border-slate-700 transition-all shadow-2xs cursor-pointer no-print ${detectFormulas ? "ring-2 ring-teal-500" : ""}`}
+              title={lang === "ar" ? "تبديل التعرف التلقائي على الصيغ الكيميائية" : "Toggle Chemical Formula Auto-Detector"}
+            >
+              <Beaker className={`w-4 h-4 ${detectFormulas ? "text-teal-600" : "text-slate-600"}`} />
+            </button>
+
+            {/* Molecular Structure Visual Hint Toggle */}
+            <button
+              onClick={toggleVisualHintMode}
+              className={`flex items-center justify-center w-10 h-10 bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-850 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-xl border border-slate-200/50 dark:border-slate-700 transition-all shadow-2xs cursor-pointer no-print ${showVisualHintMode ? "ring-2 ring-indigo-500" : ""}`}
+              title={lang === "ar" ? "تبديل تلميحات الهياكل الجزيئية" : "Toggle Molecular Visual Hints"}
+            >
+              {showVisualHintMode ? (
+                <Eye className="w-4 h-4 text-indigo-600" />
+              ) : (
+                <EyeOff className="w-4 h-4 text-slate-600" />
+              )}
+            </button>
+
             {/* Language Selection Switcher */}
             <button
               onClick={() => setLang(lang === "ar" ? "en" : "ar")}
@@ -1923,6 +2674,7 @@ export default function App() {
                         lang={lang}
                         highlightGlossaryTerms={highlightGlossaryTerms}
                         useKatex={useKatex}
+                        detectFormulas={detectFormulas}
                       />
                     </div>
 
@@ -1964,6 +2716,7 @@ export default function App() {
                                 lang={lang} 
                                 highlightGlossaryTerms={highlightGlossaryTerms}
                                 useKatex={useKatex}
+                                detectFormulas={detectFormulas}
                               />
                             </div>
                           </div>
@@ -2125,6 +2878,14 @@ export default function App() {
                       >
                         <Download className="w-3 h-3" />
                         <span>{lang === "en" ? "PDF" : "PDF"}</span>
+                      </button>
+                      <button
+                        onClick={(e) => handleExtractFormulas(e)}
+                        className="text-[10px] text-indigo-700 hover:text-indigo-800 font-black transition-colors flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 shadow-sm hover:shadow-md active:scale-95"
+                        title={lang === "en" ? "Extract Formulas to CSV" : "استخراج الصيغ الكيميائية كملف CSV"}
+                      >
+                        <FlaskConical className="w-3 h-3" />
+                        <span>{lang === "en" ? "Extract" : "استخراج"}</span>
                       </button>
                     </div>
                   ) : history.length > 0 && (
