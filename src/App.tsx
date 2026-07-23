@@ -5,7 +5,6 @@ import MoleCalculator from "./components/MoleCalculator";
 import QuizSection from "./components/QuizSection";
 import PronunciationSection from "./components/PronunciationSection";
 import MolecularGeometryVisualizer from "./components/MolecularGeometryVisualizer";
-import FlashcardsSection from "./components/FlashcardsSection";
 import QuickReferenceModal from "./components/QuickReferenceModal";
 import ExamGeneratorSection from "./components/ExamGeneratorSection";
 import StudyPlanner from "./components/StudyPlanner";
@@ -1056,7 +1055,7 @@ export default function App() {
       localStorage.setItem("dr_tamer_chem_history", JSON.stringify(history));
     }
   }, [history]);
-  const [activeTab, setActiveTab] = useState<"ai-solver" | "periodic-table" | "molar-calc" | "quiz" | "pronunciation" | "flashcards" | "study-planner" | "exam-generator" | "lectures" | "important" | "about" | "dashboard">("ai-solver");
+  const [activeTab, setActiveTab] = useState<"ai-solver" | "periodic-table" | "molar-calc" | "quiz" | "pronunciation" | "study-planner" | "exam-generator" | "lectures" | "important" | "about" | "dashboard">("ai-solver");
 
   // Follow-up chat state
   const [followUpPrompt, setFollowUpPrompt] = useState("");
@@ -2208,18 +2207,6 @@ export default function App() {
               </button>
 
               <button
-                onClick={() => setActiveTab("flashcards")}
-                className={`px-3 py-2 rounded-xl text-[10px] md:text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  activeTab === "flashcards"
-                    ? "bg-teal-600 text-white shadow-sm"
-                    : "text-slate-650 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800"
-                }`}
-              >
-                <GraduationCap className="w-4 h-4 text-indigo-500" />
-                <span className="hidden sm:inline">{lang === "en" ? "Cards" : "البطاقات"}</span>
-              </button>
-
-              <button
                 onClick={() => setActiveTab("dashboard")}
                 className={`px-3 py-2 rounded-xl text-[10px] md:text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                   activeTab === "dashboard"
@@ -3108,10 +3095,6 @@ export default function App() {
         ) : activeTab === "pronunciation" ? (
           <div className="space-y-6">
             <PronunciationSection lang={lang} />
-          </div>
-        ) : activeTab === "flashcards" ? (
-          <div className="space-y-6">
-            <FlashcardsSection lang={lang} />
           </div>
         ) : activeTab === "study-planner" ? (
           <div className="space-y-6">
